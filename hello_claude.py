@@ -26,6 +26,22 @@ def find_chrome():
             return path
     return None
 
+async def wait_for_chat_input(page):
+    """Poll indefinitely until the chat box appears — no hard timeout, so you
+    can take as long as you need to log in and clear any Cloudflare check."""
+    chat_input = page.locator('[contenteditable="true"]').first
+    announced = False
+    while True:
+        try:
+            if await chat_input.is_visible():
+                return chat_input
+        except Exception:
+            pass  # page may be navigating; keep polling
+        if not announced:
+            print("Waiting for you to log in / clear Cloudflare... (no timeout)")
+            announced = True
+        await page.wait_for_timeout(2000)
+
 async def send_hello(browser):
     context = browser.contexts[0]
     page = context.pages[0] if context.pages else await context.new_page()
@@ -33,10 +49,8 @@ async def send_hello(browser):
     # domcontentloaded (not networkidle) — claude.ai never goes network-idle
     await page.goto("https://claude.ai/new", wait_until="domcontentloaded", timeout=60000)
 
-    # Wait for the input. On first run this also gives you time to log in
-    # and clear any Cloudflare challenge manually (up to 2 minutes).
-    chat_input = page.locator('[contenteditable="true"]').first
-    await chat_input.wait_for(state="visible", timeout=120000)
+    # Wait as long as needed for login; never times out.
+    chat_input = await wait_for_chat_input(page)
 
     await chat_input.click()
     await chat_input.fill("hello")
@@ -66,13 +80,11 @@ async def main():
     print(f"Starting — will send 'hello' every {INTERVAL_HOURS} hours. Press Ctrl+C to stop.\n")
     async with async_playwright() as p:
         browser = await p.chromium.connect_over_cdp(f"http://localhost:{DEBUG_PORT}")
-        try:
-            while True:
-                await send_hello(browser)
-                await asyncio.sleep(INTERVAL_HOURS * 3600)
-        finally:
-            await browser.close()
-            proc.terminate()
+        # Note: we intentionally never close the browser or kill Chrome — the
+        # window stays open across runs so the login/Cloudflare session persists.
+        while True:
+            await send_hello(browser)
+            await asyncio.sleep(INTERVAL_HOURS * 3600)
 
 if __name__ == "__main__":
     asyncio.run(main())
