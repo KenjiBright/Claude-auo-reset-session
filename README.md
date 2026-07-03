@@ -1,11 +1,11 @@
 # Claude Auto Reset Session
 
-A Python script that automatically sends "hello" to [claude.ai](https://claude.ai) every 5 hours using browser automation. No API key required — it uses your existing browser session.
+A Python script that automatically sends "hello" to [claude.ai](https://claude.ai) every 5 hours using browser automation. No API key required — it drives a real Google Chrome window using your own login session.
 
 ## Requirements
 
 - Python 3.8+
-- Chrome or Microsoft Edge installed
+- **Google Chrome** installed (a real Chrome install is required — not Playwright's bundled Chromium)
 
 ## Installation
 
@@ -13,6 +13,10 @@ A Python script that automatically sends "hello" to [claude.ai](https://claude.a
 pip install playwright
 playwright install
 ```
+
+> On Windows, if `pip`/`python` aren't recognized, install Python from
+> [python.org](https://python.org/downloads) and check **"Add Python to PATH"**,
+> then use `python -m pip install playwright`.
 
 ## Usage
 
@@ -22,41 +26,26 @@ playwright install
 python hello_claude.py
 ```
 
-A browser window will open. **Log in to claude.ai manually.** The script will then type "hello" and send it automatically. Your session is saved to `~/.claude_browser_session` so you only need to log in once.
+Chrome opens to claude.ai. **Log in manually** and, if a Cloudflare check appears, clear it once — the script waits up to 2 minutes for the chat box to appear. Once you're in, it types "hello" and sends it. Your session is saved to `~/.claude_browser_session`, so you only log in once.
 
 ### Subsequent runs
 
-After the first login, open `hello_claude.py` and change:
-
-```python
-headless=False,  # set True after first login
-```
-
-to:
-
-```python
-headless=True,
-```
-
-The script will then run silently in the background.
+Just run `python hello_claude.py` again. It reuses the saved session and Cloudflare clearance — no login needed. Leave the window open; every 5 hours it re-navigates and sends "hello". Press `Ctrl+C` to stop.
 
 ## How it works
 
-- Uses [Playwright](https://playwright.dev/python/) to open Chrome (or Edge if Chrome is not found)
-- Navigates to `claude.ai/new`, types "hello", and presses Enter
-- Waits 5 hours, then repeats
-- Press `Ctrl+C` to stop
+Cloudflare's bot protection blocks browsers that Playwright *launches* directly, because Playwright sets automation flags (`navigator.webdriver`, `--enable-automation`) that get fingerprinted. To avoid this, the script:
 
-## Browser support
+1. Launches your **real Google Chrome** as a separate process with remote debugging enabled (`--remote-debugging-port=9222`) and a dedicated profile directory.
+2. **Connects** to that Chrome over CDP with `playwright.chromium.connect_over_cdp(...)` — it only attaches, it doesn't launch. So no automation flags are set and Cloudflare treats it as a normal human session.
+3. Navigates to `claude.ai/new` using `wait_until="domcontentloaded"` (claude.ai never reaches network-idle, which is why the old `networkidle` wait timed out), then waits for the chat input, types "hello", and presses Enter.
+4. Sleeps 5 hours and repeats.
 
-The script supports Chromium-based browsers only (Playwright limitation):
+## Troubleshooting
 
-| Browser | Supported |
-|---------|-----------|
-| Chrome  | Yes (tried first) |
-| Edge    | Yes (fallback, always available on Windows) |
-| Firefox | No |
-| Safari  | No |
+- **"Google Chrome not found"** — install Chrome from [google.com/chrome](https://www.google.com/chrome/), or edit the `candidates` list in `find_chrome()` to point at your Chrome path.
+- **Cloudflare still blocking** — make sure no other Chrome instance is already using the `~/.claude_browser_session` profile, and complete the human check manually on first run.
+- **Only Chrome is supported.** Playwright can automate Chromium-based browsers only; this tool specifically drives real Chrome to defeat Cloudflare.
 
 ## Output
 
